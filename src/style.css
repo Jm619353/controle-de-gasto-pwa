@@ -1,0 +1,429 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+#app {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+body {
+  background-color: #121212;
+  color: #f4f4f5;
+  display: flex;
+  justify-content: center;
+  min-height: 100vh;
+}
+
+.app-container {
+  width: 100%;
+  max-width: 480px;
+  padding: 16px;
+}
+
+.topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.topo h1 {
+  font-size: 1.25rem;
+}
+
+.seletor-mes {
+  background: #222222;
+  color: #fff;
+  border: 1px solid #333;
+  padding: 6px 10px;
+  border-radius: 8px;
+}
+
+.aviso {
+  background: #166534;
+  color: #dcfce7;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  text-align: center;
+  font-size: 0.9rem;
+}
+
+.grid-resumo {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.card {
+  background: #222222;
+  padding: 12px;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.card span {
+  font-size: 0.8rem;
+  color: #a1a1aa;
+}
+
+.card strong {
+  font-size: 1.1rem;
+}
+
+.card.destaque {
+  border: 1px solid #22c55e;
+}
+
+.card.destaque strong {
+  color: #4ade80;
+}
+
+.negativo {
+  color: #f87171;
+}
+
+.abas {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.abas button {
+  background: #222222;
+  color: #a1a1aa;
+  border: none;
+  padding: 10px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.abas button.ativo {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.painel {
+  background: #1c1c1e;
+  padding: 16px;
+  border-radius: 12px;
+}
+
+.formulario {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formulario label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: #d4d4d8;
+}
+
+.formulario input {
+  background: #222222;
+  border: 1px solid #3f3f46;
+  color: #fff;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.btn-primario,
+.btn-secundario {
+  padding: 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: center;
+}
+
+.btn-primario {
+  background: #22c55e;
+  color: #052e16;
+}
+
+.btn-secundario {
+  background: #27272a;
+  color: #f4f4f5;
+  border: 1px solid #3f3f46;
+  width: 100%;
+  display: block;
+}
+
+.item-historico {
+  background: #222222;
+  padding: 12px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.item-topo {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.btn-excluir {
+  background: transparent;
+  color: #f87171;
+  border: 1px solid #7f1d1d;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.item-detalhes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  font-size: 0.85rem;
+  color: #a1a1aa;
+}
+
+.lucro-item {
+  color: #4ade80;
+}
+
+.divisor {
+  border: 0;
+  border-top: 1px solid #333;
+  margin: 20px 0;
+}
+
+.backup-area {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.backup-area h3 {
+  font-size: 0.95rem;
+  color: #a1a1aa;
+}
+
+.vazio {
+  text-align: center;
+  color: #71717a;
+  padding: 20px 0;
+}
+
+/* Substitua a regra .abas existente por esta para caberem os 4 botões no celular */
+.abas {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.abas button {
+  background: #222222;
+  color: #a1a1aa;
+  border: none;
+  padding: 10px 4px;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.abas button.ativo {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+/* Estilos da aba Relatórios */
+.presets-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.presets-grid button {
+  background: #27272a;
+  color: #d4d4d8;
+  border: 1px solid #3f3f46;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.presets-grid button.ativo {
+  background: #2563eb;
+  border-color: #2563eb;
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.datas-custom {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.datas-custom label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: #a1a1aa;
+}
+
+.datas-custom input {
+  background: #222222;
+  border: 1px solid #3f3f46;
+  color: #fff;
+  padding: 8px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  width: 100%;
+}
+
+.relatorio-bloco {
+  background: #222222;
+  padding: 14px;
+  border-radius: 10px;
+}
+
+.relatorio-cabecalho {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.85rem;
+  color: #a1a1aa;
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid #333;
+}
+
+.relatorio-linha {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  font-size: 0.9rem;
+}
+
+.relatorio-linha.total {
+  margin-top: 8px;
+  padding-top: 10px;
+  border-top: 1px solid #333;
+  font-size: 1rem;
+}
+
+.relatorio-medias {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.relatorio-medias .card {
+  background: #1c1c1e;
+}
+
+.campo-data-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.campo-data-wrapper input[type='text'] {
+  width: 100%;
+  padding-right: 44px;
+}
+
+.icone-calendario {
+  position: absolute;
+  right: 12px;
+  pointer-events: none;
+  font-size: 1.1rem;
+}
+
+.input-date-oculto {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 44px;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.acoes-item {
+  display: flex;
+  gap: 6px;
+}
+
+.btn-editar {
+  background: transparent;
+  color: #60a5fa;
+  border: 1px solid #1e40af;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.edicao-data-box {
+  background: #18181b;
+  padding: 10px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edicao-data-box input[type='text'] {
+  background: #222222;
+  border: 1px solid #3f3f46;
+  color: #fff;
+  padding: 8px 40px 8px 10px;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+
+.edicao-botoes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.btn-salvar-mini,
+.btn-cancelar-mini {
+  padding: 8px;
+  border-radius: 6px;
+  border: none;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.btn-salvar-mini {
+  background: #22c55e;
+  color: #052e16;
+}
+
+.btn-cancelar-mini {
+  background: #27272a;
+  color: #d4d4d8;
+}
