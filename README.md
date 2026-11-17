@@ -80,7 +80,30 @@ npm run build
 npm run preview
 
 ```
+## Como Instalar e Usar no Celular
 
+Por ser um **PWA (Progressive Web App)**, o aplicativo não precisa ser baixado pela Play Store ou App Store — a instalação é feita diretamente pelo navegador e ocupa quase nenhum espaço no aparelho:
+
+- **Link de Acesso:** https://controle-de-gasto-pwa.vercel.app
+
+### 1. Instalar na Tela Inicial
+
+- **Android (Google Chrome):**
+  1. Acesse o link acima no Chrome.
+  2. Toque no menu **`⋮`** no canto superior direito.
+  3. Selecione **Instalar aplicativo** (ou **Adicionar à tela inicial**) e confirme.
+
+- **iPhone (Safari):**
+  1. Acesse o link acima pelo navegador **Safari**.
+  2. Toque no ícone de **Compartilhar** (quadrado com seta para cima na barra inferior).
+  3. Role as opções e toque em **Adicionar à Tela de Início** → **Adicionar**.
+
+### 2. Primeiros Passos (Configuração Inicial)
+
+1. **Cadastre seu veículo:** Abra o aplicativo instalado, vá até a aba **Ajustes → Meus Veículos**, escolha um atalho pré-definido (**Padrão Carro** ou **Padrão Moto**) ou informe o consumo (`km/L`) e a reserva de desgaste (`R$/km`) reais do seu veículo.
+2. **Registre seu dia:** Na aba **Lançar**, selecione o veículo utilizado no dia, informe a data, os quilômetros rodados, o faturamento bruto e o preço do litro da gasolina.
+3. **Acompanhe seus resultados:** Use a aba **Histórico** para conferir ou editar lançamentos e a aba **Relatórios** para filtrar o lucro líquido real por período ou por veículo.
+4. **Proteja seus dados:** Como tudo fica salvo localmente no seu celular para funcionar **100% offline**, exporte regularmente o arquivo `.json` na aba **Ajustes → Backup dos Dados**.
 
 
 ## Deploy na Vercel
