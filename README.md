@@ -25,6 +25,7 @@ Aplicação web progressiva (*Progressive Web App*) **mobile-first** desenvolvid
 - **Histórico Editável:** Consulta mensal com possibilidade de corrigir datas de lançamentos anteriores ou excluir registros.
 - **Privacidade e Backup Local:** Todos os dados ficam salvos localmente no dispositivo via **IndexedDB**, com exportação e importação em arquivo `.json` para transferência entre celular e computador.
 - **Modo Offline (PWA):** Service Worker configurado para carregamento instantâneo e operação sem conexão com a internet.
+- **Garagem de Veículos:** Cadastro de múltiplos veículos com apelido, modelo, consumo individual e reserva de desgaste, incluindo atalhos pré-configurados para **Carro** e **Moto** e filtro específico nos relatórios.
 
 ## Tecnologias Utilizadas
 

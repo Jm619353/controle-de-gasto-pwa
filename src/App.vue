@@ -1,9 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue';
 import CampoDataBR from './components/CampoDataBR.vue';
+import CampoNumero from './components/CampoNumero.vue';
+import type { Configuracao, TipoVeiculo, Veiculo } from './database/db';
 import {
- obterConfiguracao,
+  obterConfiguracao,
   atualizarConfiguracao,
+  listarVeiculos,
+  salvarVeiculo,
+  definirVeiculoPadrao,
+  excluirVeiculo,
   adicionarRegistro,
   listarRegistrosPorMes,
   listarRegistrosPorPeriodo,
@@ -12,68 +18,315 @@ import {
   exportarBackupJSON,
   importarBackupJSON,
 } from './database/repositorio';
-import { calcularResumo, type RegistroCalculado } from './domain/calculos';
+import {
+  calcularRegistro,
+  consolidarPeriodo,
+  type RegistroCalculado,
+} from './domain/calculos';
 
+type Aba = 'lancar' | 'historico' | 'relatorios' | 'ajustes';
+type TipoPeriodo = '7d' | '15d' | '1m' | '6m' | '1a' | 'personalizado';
+
+function obterDataLocal(diasDeslocamento = 0): string {
+  const data = new Date();
+  data.setDate(data.getDate() + diasDeslocamento);
+  const ano = data.getFullYear();
+  const mes = String(data.getMonth() + 1).padStart(2, '0');
+  const dia = String(data.getDate()).padStart(2, '0');
+  return `${ano}-${mes}-${dia}`;
+}
+
+function formatarDataBR(dataISO: string): string {
+  if (!dataISO || !dataISO.includes('-')) return dataISO;
+  const [ano, mes, dia] = dataISO.split('-');
+  return `${dia}/${mes}/${ano}`;
+}
+
+function formatarMoeda(valor: number): string {
+  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function iconeTipoVeiculo(tipo?: TipoVeiculo): string {
+  if (tipo === 'moto') return '🏍️';
+  if (tipo === 'carro') return '🚗';
+  return '🚘';
+}
+
+// Estado global
+const abaAtiva = ref<Aba>('lancar');
+const mesSelecionado = ref(obterDataLocal().slice(0, 7));
+const mensagemFeedback = ref('');
+
+// Configurações e Veículos
+const config = ref<Configuracao>({
+  consumoKmPorLitro: 9,
+  reservaDesgastePorKm: 0.3,
+  precoGasolinaPadrao: 6.24,
+});
+const veiculos = ref<Veiculo[]>([]);
+const veiculoSelecionadoId = ref<number | undefined>(undefined);
+
+// Formulário da Garagem (Ajustes)
+const formVeiculo = ref<{
+  id?: number;
+  apelido: string;
+  modelo: string;
+  tipo: TipoVeiculo;
+  consumoKmPorLitro: number | null;
+  reservaDesgastePorKm: number | null;
+  padrao: boolean;
+}>({
+  apelido: '',
+  modelo: '',
+  tipo: 'carro',
+  consumoKmPorLitro: 9,
+  reservaDesgastePorKm: 0.3,
+  padrao: false,
+});
+
+// Formulário de lançamento
+const dataForm = ref(obterDataLocal());
+const kmForm = ref<number | null>(null);
+const ganhoForm = ref<number | null>(null);
+const gasolinaForm = ref<number | null>(6.24);
+
+// Edição de data no Histórico
 const editandoId = ref<number | null>(null);
-const dataEdicaoTextoBR = ref('');
 const dataEdicaoISO = ref('');
 
-function aplicarMascaraDataBR(valorBruto: string): string {
-  const digitos = valorBruto.replace(/\D/g, '').slice(0, 8);
-  if (digitos.length > 4) {
-    return `${digitos.slice(0, 2)}/${digitos.slice(2, 4)}/${digitos.slice(4)}`;
+// Listas de registros
+const registrosMes = ref<RegistroCalculado[]>([]);
+const registrosRelatorio = ref<RegistroCalculado[]>([]);
+
+// Filtro de período e veículo na aba Relatórios
+const periodoSelecionado = ref<TipoPeriodo>('7d');
+const dataInicioRelatorio = ref(obterDataLocal(-6));
+const dataFimRelatorio = ref(obterDataLocal());
+const filtroVeiculoRelatorio = ref<string>('todos');
+
+const veiculoAtivoLancamento = computed(() =>
+  veiculos.value.find((v) => v.id === veiculoSelecionadoId.value)
+);
+
+const resumoMes = computed(() => consolidarPeriodo(registrosMes.value));
+
+const registrosRelatorioFiltrados = computed(() => {
+  if (filtroVeiculoRelatorio.value === 'todos') {
+    return registrosRelatorio.value;
   }
-  if (digitos.length > 2) {
-    return `${digitos.slice(0, 2)}/${digitos.slice(2)}`;
-  }
-  return digitos;
+  const idFiltro = Number(filtroVeiculoRelatorio.value);
+  return registrosRelatorio.value.filter((r) => r.veiculoId === idFiltro);
+});
+
+const resumoRelatorio = computed(() =>
+  consolidarPeriodo(registrosRelatorioFiltrados.value)
+);
+
+function exibirAviso(texto: string) {
+  mensagemFeedback.value = texto;
+  setTimeout(() => {
+    mensagemFeedback.value = '';
+  }, 3200);
 }
 
-function converterBRParaISO(textoBR: string): string {
-  const digitos = textoBR.replace(/\D/g, '');
-  if (digitos.length !== 8) return '';
-
-  const dia = Number(digitos.slice(0, 2));
-  const mes = Number(digitos.slice(2, 4));
-  const ano = Number(digitos.slice(4, 8));
-  const dataObj = new Date(ano, mes - 1, dia);
-
-  const valida =
-    dataObj.getFullYear() === ano &&
-    dataObj.getMonth() === mes - 1 &&
-    dataObj.getDate() === dia;
-
-  if (!valida) return '';
-  return `${String(ano).padStart(4, '0')}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+async function carregarVeiculos() {
+  veiculos.value = await listarVeiculos();
+  const aindaExiste = veiculos.value.some(
+    (v) => v.id === veiculoSelecionadoId.value
+  );
+  if (!aindaExiste) {
+    const padrao = veiculos.value.find((v) => v.padrao) ?? veiculos.value[0];
+    veiculoSelecionadoId.value = padrao?.id;
+  }
 }
 
+async function carregarDados() {
+  config.value = await obterConfiguracao();
+  if (config.value.precoGasolinaPadrao) {
+    gasolinaForm.value = config.value.precoGasolinaPadrao;
+  }
+  await carregarVeiculos();
+
+  const brutosMes = await listarRegistrosPorMes(mesSelecionado.value);
+  registrosMes.value = brutosMes.map((r) => calcularRegistro(r, config.value));
+
+  await carregarRelatorio();
+}
+
+async function carregarRelatorio() {
+  if (!dataInicioRelatorio.value || !dataFimRelatorio.value) return;
+  const brutos = await listarRegistrosPorPeriodo(
+    dataInicioRelatorio.value,
+    dataFimRelatorio.value
+  );
+  registrosRelatorio.value = brutos.map((r) =>
+    calcularRegistro(r, config.value)
+  );
+}
+
+function selecionarAtalhoPeriodo(tipo: Exclude<TipoPeriodo, 'personalizado'>) {
+  periodoSelecionado.value = tipo;
+  dataFimRelatorio.value = obterDataLocal();
+
+  const mapaDias: Record<Exclude<TipoPeriodo, 'personalizado'>, number> = {
+    '7d': -6,
+    '15d': -14,
+    '1m': -29,
+    '6m': -179,
+    '1a': -364,
+  };
+
+  dataInicioRelatorio.value = obterDataLocal(mapaDias[tipo]);
+}
+
+watch(mesSelecionado, carregarDados);
+watch([dataInicioRelatorio, dataFimRelatorio], carregarRelatorio);
+onMounted(carregarDados);
+
+// Ações da Garagem de Veículos
+function aplicarPresetVeiculo(tipo: 'carro' | 'moto') {
+  if (tipo === 'carro') {
+    formVeiculo.value.tipo = 'carro';
+    formVeiculo.value.consumoKmPorLitro = 9;
+    formVeiculo.value.reservaDesgastePorKm = 0.3;
+    if (!formVeiculo.value.apelido) formVeiculo.value.apelido = 'Carro';
+  } else {
+    formVeiculo.value.tipo = 'moto';
+    formVeiculo.value.consumoKmPorLitro = 35;
+    formVeiculo.value.reservaDesgastePorKm = 0.1;
+    if (!formVeiculo.value.apelido) formVeiculo.value.apelido = 'Moto';
+  }
+}
+
+function limparFormVeiculo() {
+  formVeiculo.value = {
+    id: undefined,
+    apelido: '',
+    modelo: '',
+    tipo: 'carro',
+    consumoKmPorLitro: 9,
+    reservaDesgastePorKm: 0.3,
+    padrao: false,
+  };
+}
+
+function editarVeiculo(v: Veiculo) {
+  formVeiculo.value = {
+    id: v.id,
+    apelido: v.apelido,
+    modelo: v.modelo,
+    tipo: v.tipo,
+    consumoKmPorLitro: v.consumoKmPorLitro,
+    reservaDesgastePorKm: v.reservaDesgastePorKm,
+    padrao: v.padrao,
+  };
+}
+
+async function salvarFormVeiculo() {
+  if (!formVeiculo.value.apelido.trim()) {
+    exibirAviso('Informe um apelido para o veículo (ex.: Moto do corre).');
+    return;
+  }
+  if (
+    !formVeiculo.value.consumoKmPorLitro ||
+    formVeiculo.value.consumoKmPorLitro <= 0 ||
+    formVeiculo.value.reservaDesgastePorKm === null ||
+    formVeiculo.value.reservaDesgastePorKm < 0
+  ) {
+    exibirAviso('Informe valores válidos para consumo e desgaste.');
+    return;
+  }
+
+  const estavaEditando = Boolean(formVeiculo.value.id);
+  const idSalvo = await salvarVeiculo({
+    id: formVeiculo.value.id,
+    apelido: formVeiculo.value.apelido,
+    modelo: formVeiculo.value.modelo || 'Não informado',
+    tipo: formVeiculo.value.tipo,
+    consumoKmPorLitro: formVeiculo.value.consumoKmPorLitro,
+    reservaDesgastePorKm: formVeiculo.value.reservaDesgastePorKm,
+    padrao: formVeiculo.value.padrao,
+  });
+
+  limparFormVeiculo();
+  await carregarVeiculos();
+  veiculoSelecionadoId.value = idSalvo;
+  exibirAviso(
+    estavaEditando ? 'Veículo atualizado!' : 'Veículo adicionado à garagem!'
+  );
+}
+
+async function tornarPadrao(id?: number) {
+  if (!id) return;
+  await definirVeiculoPadrao(id);
+  await carregarVeiculos();
+  veiculoSelecionadoId.value = id;
+  exibirAviso('Veículo padrão atualizado!');
+}
+
+async function removerVeiculo(id?: number) {
+  if (!id) return;
+  const removido = await excluirVeiculo(id);
+  if (!removido) {
+    exibirAviso('É necessário manter pelo menos um veículo cadastrado.');
+    return;
+  }
+  if (formVeiculo.value.id === id) limparFormVeiculo();
+  await carregarVeiculos();
+  exibirAviso('Veículo removido da garagem.');
+}
+
+// Lançamento diário
+async function salvarLancamento() {
+  if (!dataForm.value) {
+    exibirAviso('Informe uma data válida no formato dd/mm/aaaa.');
+    return;
+  }
+  if (!kmForm.value || !ganhoForm.value || kmForm.value <= 0) {
+    exibirAviso('Preencha os quilômetros e o valor ganho.');
+    return;
+  }
+  if (!gasolinaForm.value || gasolinaForm.value <= 0) {
+  exibirAviso('Informe o preço da gasolina.');
+  return;
+  }
+
+  const veiculo = veiculoAtivoLancamento.value;
+
+  await adicionarRegistro({
+    data: dataForm.value,
+    kmRodados: kmForm.value,
+    dinheiroGanho: ganhoForm.value,
+    precoGasolinaAplicado: gasolinaForm.value,
+    veiculoId: veiculo?.id,
+    veiculoApelido: veiculo?.apelido ?? 'Veículo Principal',
+    veiculoModelo: veiculo?.modelo ?? '',
+    consumoAplicado:
+      veiculo?.consumoKmPorLitro ?? config.value.consumoKmPorLitro,
+    reservaAplicada:
+      veiculo?.reservaDesgastePorKm ?? config.value.reservaDesgastePorKm,
+  });
+
+  await atualizarConfiguracao({ precoGasolinaPadrao: gasolinaForm.value });
+
+  mesSelecionado.value = dataForm.value.slice(0, 7);
+  kmForm.value = null;
+  ganhoForm.value = null;
+
+  await carregarDados();
+  exibirAviso('Dia registrado com sucesso!');
+}
+
+// Edição de data no Histórico
 function iniciarEdicaoData(item: RegistroCalculado) {
   if (!item.id) return;
   editandoId.value = item.id;
   dataEdicaoISO.value = item.data;
-  dataEdicaoTextoBR.value = formatarDataBR(item.data);
 }
 
 function cancelarEdicaoData() {
   editandoId.value = null;
-  dataEdicaoTextoBR.value = '';
   dataEdicaoISO.value = '';
-}
-
-function aoDigitarDataEdicao(evento: Event) {
-  const input = evento.target as HTMLInputElement;
-  const formatado = aplicarMascaraDataBR(input.value);
-  dataEdicaoTextoBR.value = formatado;
-  input.value = formatado;
-  dataEdicaoISO.value = converterBRParaISO(formatado);
-}
-
-function aoEscolherDataEdicaoCalendario(evento: Event) {
-  const valorISO = (evento.target as HTMLInputElement).value;
-  if (valorISO) {
-    dataEdicaoISO.value = valorISO;
-    dataEdicaoTextoBR.value = formatarDataBR(valorISO);
-  }
 }
 
 async function salvarEdicaoData(id?: number) {
@@ -84,295 +337,164 @@ async function salvarEdicaoData(id?: number) {
   }
 
   await atualizarDataRegistro(id, dataEdicaoISO.value);
-  // Atualiza o filtro do topo para acompanhar o mês da nova data
   mesSelecionado.value = dataEdicaoISO.value.slice(0, 7);
   cancelarEdicaoData();
   await carregarDados();
   exibirAviso('Data alterada com sucesso!');
 }
 
-function formatarDataISO(data: Date): string {
-  const ano = data.getFullYear();
-  const mes = String(data.getMonth() + 1).padStart(2, '0');
-  const dia = String(data.getDate()).padStart(2, '0');
-  return `${ano}-${mes}-${dia}`;
-}
-
-function obterDataLocal(): string {
-  return formatarDataISO(new Date());
-}
-
-function subtrairDias(dias: number): string {
-  const data = new Date();
-  data.setDate(data.getDate() - dias);
-  return formatarDataISO(data);
-}
-
-type Aba = 'lancar' | 'historico' | 'relatorios' | 'ajustes';
-type PresetsPeriodo = '7d' | '15d' | '30d' | '6m' | '1a' | 'custom';
-
-const abaAtiva = ref<Aba>('lancar');
-const mesSelecionado = ref(obterDataLocal().slice(0, 7));
-const registros = ref<RegistroCalculado[]>([]);
-const mensagem = ref('');
-
-// Campos do formulário diário
-const dataForm = ref(obterDataLocal());
-const kmForm = ref<number | null>(null);
-const ganhoForm = ref<number | null>(null);
-const gasolinaForm = ref<number>(6.24);
-
-// Campos de configuração
-const precoGasolina = ref(6.24);
-const consumoKmLitro = ref(9);
-const taxaDesgasteKm = ref(0.30);
-
-// Estados da aba Relatórios
-const presetAtivo = ref<PresetsPeriodo>('7d');
-const relatorioInicio = ref(subtrairDias(6));
-const relatorioFim = ref(obterDataLocal());
-const registrosRelatorio = ref<RegistroCalculado[]>([]);
-
-const resumo = computed(() => calcularResumo(registros.value));
-const resumoRelatorio = computed(() => calcularResumo(registrosRelatorio.value));
-
-function formatarMoeda(valor: number): string {
-  return valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
-function formatarDataBR(dataISO: string): string {
-  const [ano, mes, dia] = dataISO.split('-');
-  return `${dia}/${mes}/${ano}`;
-}
-
-function exibirAviso(texto: string) {
-  mensagem.value = texto;
-  setTimeout(() => {
-    mensagem.value = '';
-  }, 3000);
-}
-
-async function carregarDados() {
-  const config = await obterConfiguracao();
-  precoGasolina.value = config.precoGasolina;
-  gasolinaForm.value = config.precoGasolina;
-  consumoKmLitro.value = config.consumoKmLitro;
-  taxaDesgasteKm.value = config.taxaDesgasteKm;
-
-  registros.value = await listarRegistrosPorMes(mesSelecionado.value);
-  await carregarRelatorio();
-}
-
-async function carregarRelatorio() {
-  if (!relatorioInicio.value || !relatorioFim.value) return;
-  const inicio =
-    relatorioInicio.value <= relatorioFim.value
-      ? relatorioInicio.value
-      : relatorioFim.value;
-  const fim =
-    relatorioInicio.value <= relatorioFim.value
-      ? relatorioFim.value
-      : relatorioInicio.value;
-
-  registrosRelatorio.value = await listarRegistrosPorPeriodo(inicio, fim);
-}
-
-function aplicarPreset(preset: PresetsPeriodo) {
-  presetAtivo.value = preset;
-  const hoje = new Date();
-  relatorioFim.value = formatarDataISO(hoje);
-
-  if (preset === '7d') {
-    relatorioInicio.value = subtrairDias(6);
-  } else if (preset === '15d') {
-    relatorioInicio.value = subtrairDias(14);
-  } else if (preset === '30d') {
-    relatorioInicio.value = subtrairDias(29);
-  } else if (preset === '6m') {
-    const seisMeses = new Date(hoje.getFullYear(), hoje.getMonth() - 6, hoje.getDate());
-    relatorioInicio.value = formatarDataISO(seisMeses);
-  } else if (preset === '1a') {
-    const umAno = new Date(hoje.getFullYear() - 1, hoje.getMonth(), hoje.getDate());
-    relatorioInicio.value = formatarDataISO(umAno);
-  }
-}
-
-async function salvarLancamento() {
-  if (!dataForm.value) {
-    exibirAviso('Informe uma data válida no formato dd/mm/aaaa.');
-    return;
-  }
-
-  if (!kmForm.value || !ganhoForm.value || kmForm.value <= 0) {
-    exibirAviso('Preencha os quilômetros e o valor ganho.');
-    return;
-  }
-
-  await adicionarRegistro({
-    data: dataForm.value,
-    kmRodados: Number(kmForm.value),
-    dinheiroGanho: Number(ganhoForm.value),
-    precoGasolina: Number(gasolinaForm.value),
-  });
-
-  kmForm.value = null;
-  ganhoForm.value = null;
-  mesSelecionado.value = dataForm.value.slice(0, 7);
-  await carregarDados();
-  exibirAviso('Dia registrado com sucesso!');
-}
-
 async function removerItem(id?: number) {
   if (!id) return;
   await excluirRegistro(id);
   await carregarDados();
-  exibirAviso('Registro excluído.');
+  exibirAviso('Registro removido.');
 }
 
-async function salvarAjustes() {
-  await atualizarConfiguracao({
-    precoGasolina: Number(precoGasolina.value),
-    consumoKmLitro: Number(consumoKmLitro.value),
-    taxaDesgasteKm: Number(taxaDesgasteKm.value),
-  });
-  gasolinaForm.value = Number(precoGasolina.value);
-  exibirAviso('Parâmetros atualizados!');
-}
-
+// Backup JSON
 async function baixarBackup() {
   const json = await exportarBackupJSON();
   const blob = new Blob([json], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `backup-gastos-${obterDataLocal()}.json`;
+  link.download = `backup-controle-diario-${obterDataLocal()}.json`;
   link.click();
   URL.revokeObjectURL(url);
 }
 
-async function restaurarBackup(evento: Event) {
+function restaurarBackup(evento: Event) {
   const input = evento.target as HTMLInputElement;
   const arquivo = input.files?.[0];
   if (!arquivo) return;
 
-  try {
-    const conteudo = await arquivo.text();
-    await importarBackupJSON(conteudo);
-    await carregarDados();
-    exibirAviso('Backup restaurado com sucesso!');
-  } catch {
-    exibirAviso('Erro: arquivo de backup inválido.');
-  } finally {
-    input.value = '';
-  }
+  const leitor = new FileReader();
+  leitor.onload = async () => {
+    try {
+      await importarBackupJSON(String(leitor.result));
+      await carregarDados();
+      exibirAviso('Backup restaurado com sucesso!');
+    } catch {
+      exibirAviso('Erro ao ler o arquivo de backup.');
+    }
+  };
+  leitor.readAsText(arquivo);
 }
-
-watch(mesSelecionado, carregarDados);
-watch([relatorioInicio, relatorioFim], carregarRelatorio);
-onMounted(carregarDados);
 </script>
 
 <template>
   <div class="app-container">
+    <!-- Cabeçalho com filtro mensal -->
     <header class="topo">
       <h1>Controle Diário</h1>
       <input type="month" v-model="mesSelecionado" class="seletor-mes" />
     </header>
 
-    <div v-if="mensagem" class="aviso">{{ mensagem }}</div>
-
-    <!-- Cards de Resumo do Mês -->
-    <section class="grid-resumo">
+    <!-- Cards de Resumo Mensal -->
+    <section class="cards-resumo">
       <div class="card destaque">
         <span>Lucro Real</span>
-        <strong>{{ formatarMoeda(resumo.totalLucroReal) }}</strong>
+        <strong>{{ formatarMoeda(resumoMes.totalLucroReal) }}</strong>
       </div>
       <div class="card">
         <span>Ganho Bruto</span>
-        <strong>{{ formatarMoeda(resumo.totalGanhoBruto) }}</strong>
+        <strong>{{ formatarMoeda(resumoMes.totalGanhoBruto) }}</strong>
       </div>
       <div class="card">
-        <span>Gasolina ({{ resumo.totalLitros.toFixed(1) }} L)</span>
-        <strong class="negativo">- {{ formatarMoeda(resumo.totalGasolina) }}</strong>
+        <span>Gasolina ({{ resumoMes.totalLitros.toFixed(1) }} L)</span>
+        <strong class="negativo"
+          >- {{ formatarMoeda(resumoMes.totalGasolina) }}</strong
+        >
       </div>
       <div class="card">
         <span>Reserva Desgaste</span>
-        <strong class="negativo">- {{ formatarMoeda(resumo.totalDesgaste) }}</strong>
+        <strong class="negativo"
+          >- {{ formatarMoeda(resumoMes.totalDesgaste) }}</strong
+        >
       </div>
     </section>
 
-    <!-- Navegação por Abas -->
+    <div v-if="mensagemFeedback" class="toast">{{ mensagemFeedback }}</div>
+
+    <!-- Navegação -->
     <nav class="abas">
-      <button :class="{ ativo: abaAtiva === 'lancar' }" @click="abaAtiva = 'lancar'">
+      <button
+        :class="{ ativo: abaAtiva === 'lancar' }"
+        @click="abaAtiva = 'lancar'"
+      >
         Lançar
       </button>
-      <button :class="{ ativo: abaAtiva === 'historico' }" @click="abaAtiva = 'historico'">
-        Histórico ({{ registros.length }})
+      <button
+        :class="{ ativo: abaAtiva === 'historico' }"
+        @click="abaAtiva = 'historico'"
+      >
+        Histórico ({{ registrosMes.length }})
       </button>
-      <button :class="{ ativo: abaAtiva === 'relatorios' }" @click="abaAtiva = 'relatorios'">
+      <button
+        :class="{ ativo: abaAtiva === 'relatorios' }"
+        @click="abaAtiva = 'relatorios'"
+      >
         Relatórios
       </button>
-      <button :class="{ ativo: abaAtiva === 'ajustes' }" @click="abaAtiva = 'ajustes'">
+      <button
+        :class="{ ativo: abaAtiva === 'ajustes' }"
+        @click="abaAtiva = 'ajustes'"
+      >
         Ajustes
       </button>
     </nav>
 
-    <!-- ABA 1: Novo Lançamento -->
+    <!-- ABA 1: Lançar -->
     <main v-if="abaAtiva === 'lancar'" class="painel">
       <form @submit.prevent="salvarLancamento" class="formulario">
         <label>
-       Data
-       <CampoDataBR v-model="dataForm" required />
+          Veículo Utilizado
+          <select v-model="veiculoSelecionadoId" class="select-padrao">
+            <option v-for="v in veiculos" :key="v.id" :value="v.id">
+              {{ iconeTipoVeiculo(v.tipo) }} {{ v.apelido }}
+              {{ v.modelo ? `(${v.modelo})` : '' }} — {{ v.consumoKmPorLitro }} km/L
+            </option>
+          </select>
+        </label>
+
+        <label>
+          Data
+          <CampoDataBR v-model="dataForm" required />
+        </label>
+
+        <label>
+       KM Rodados
+       <CampoNumero v-model="kmForm" placeholder="Ex: 136.6" required />
      </label>
 
-        <label>
-          KM Rodados
-          <input
-            type="number"
-            step="0.1"
-            inputmode="decimal"
-            placeholder="Ex: 136.6"
-            v-model.number="kmForm"
-            required
-          />
-        </label>
+     <label>
+       Dinheiro Ganho (R$)
+       <CampoNumero v-model="ganhoForm" placeholder="Ex: 252.17" required />
+     </label>
 
-        <label>
-          Dinheiro Ganho (R$)
-          <input
-            type="number"
-            step="0.01"
-            inputmode="decimal"
-            placeholder="Ex: 252.17"
-            v-model.number="ganhoForm"
-            required
-          />
-        </label>
+     <label>
+       Preço da Gasolina Hoje (R$/L)
+       <CampoNumero v-model="gasolinaForm" placeholder="Ex: 6.24" required />
+     </label>
 
-        <label>
-          Preço da Gasolina Hoje (R$/L)
-          <input
-            type="number"
-            step="0.01"
-            inputmode="decimal"
-            v-model.number="gasolinaForm"
-            required
-          />
-        </label>
-
-        <button type="submit" class="btn-primario">Salvar Dia</button>
+        <button type="submit" class="btn-principal">Salvar Dia</button>
       </form>
     </main>
 
     <!-- ABA 2: Histórico -->
-    <main v-else-if="abaAtiva === 'historico'" class="painel">
-      <p v-if="registros.length === 0" class="vazio">
-        Nenhum registro encontrado para este mês.
+    <main v-if="abaAtiva === 'historico'" class="painel">
+      <p v-if="registrosMes.length === 0" class="vazio">
+        Nenhum registro encontrado neste mês.
       </p>
 
-      <div v-for="item in registros" :key="item.id" class="item-historico">
+      <div v-for="item in registrosMes" :key="item.id" class="item-historico">
         <div class="item-topo">
-          <strong>{{ formatarDataBR(item.data) }} — {{ item.kmRodados }} km</strong>
+          <div class="item-titulo-grupo">
+            <strong>{{ formatarDataBR(item.data) }} — {{ item.kmRodados }} km</strong>
+            <span v-if="item.veiculoApelido" class="badge-veiculo">
+              {{ item.veiculoApelido }}
+              <template v-if="item.veiculoModelo"> • {{ item.veiculoModelo }}</template>
+            </span>
+          </div>
           <div class="acoes-item">
             <button @click="iniciarEdicaoData(item)" class="btn-editar">
               Editar data
@@ -384,120 +506,107 @@ onMounted(carregarDados);
         </div>
 
         <div v-if="editandoId === item.id" class="edicao-data-box">
-          <div class="campo-data-wrapper">
-            <input
-              type="text"
-              inputmode="numeric"
-              maxlength="10"
-              placeholder="dd/mm/aaaa"
-              :value="dataEdicaoTextoBR"
-              @input="aoDigitarDataEdicao"
-            />
-            <span class="icone-calendario" aria-hidden="true">📅</span>
-            <input
-              type="date"
-              :value="dataEdicaoISO"
-              @change="aoEscolherDataEdicaoCalendario"
-              class="input-date-oculto"
-              aria-label="Selecionar nova data"
-            />
-          </div>
           <CampoDataBR v-model="dataEdicaoISO" />
-       <div class="edicao-botoes">
-         <button @click="salvarEdicaoData(item.id)" class="btn-salvar-mini">
-           Salvar
-         </button>
-         <button @click="cancelarEdicaoData" class="btn-cancelar-mini">
-           Cancelar
-         </button>
-       </div>
+          <div class="edicao-botoes">
+            <button @click="salvarEdicaoData(item.id)" class="btn-salvar-mini">
+              Salvar
+            </button>
+            <button @click="cancelarEdicaoData" class="btn-cancelar-mini">
+              Cancelar
+            </button>
+          </div>
         </div>
+
         <div class="item-detalhes">
           <span>Bruto: {{ formatarMoeda(item.dinheiroGanho) }}</span>
           <span>
-            Gasolina ({{ formatarMoeda(item.precoGasolinaAplicado) }}/L): -{{ formatarMoeda(item.valorGasolina) }}
+            Gasolina ({{ formatarMoeda(item.precoGasolinaAplicado) }}/L): -{{
+              formatarMoeda(item.valorGasolina)
+            }}
           </span>
           <span>Sem gasolina: {{ formatarMoeda(item.valorSemGasolina) }}</span>
           <span>Desgaste: -{{ formatarMoeda(item.reservaDesgaste) }}</span>
-          <strong class="lucro-item">Lucro: {{ formatarMoeda(item.lucroReal) }}</strong>
+          <strong class="lucro-item"
+            >Lucro: {{ formatarMoeda(item.lucroReal) }}</strong
+          >
         </div>
       </div>
     </main>
 
     <!-- ABA 3: Relatórios por Período -->
-    <main v-else-if="abaAtiva === 'relatorios'" class="painel">
-      <div class="presets-grid">
+    <main v-if="abaAtiva === 'relatorios'" class="painel">
+      <div class="filtros-periodo">
         <button
-          type="button"
-          :class="{ ativo: presetAtivo === '7d' }"
-          @click="aplicarPreset('7d')"
+          :class="{ ativo: periodoSelecionado === '7d' }"
+          @click="selecionarAtalhoPeriodo('7d')"
         >
           7 dias
         </button>
         <button
-          type="button"
-          :class="{ ativo: presetAtivo === '15d' }"
-          @click="aplicarPreset('15d')"
+          :class="{ ativo: periodoSelecionado === '15d' }"
+          @click="selecionarAtalhoPeriodo('15d')"
         >
           15 dias
         </button>
         <button
-          type="button"
-          :class="{ ativo: presetAtivo === '30d' }"
-          @click="aplicarPreset('30d')"
+          :class="{ ativo: periodoSelecionado === '1m' }"
+          @click="selecionarAtalhoPeriodo('1m')"
         >
           1 mês
         </button>
         <button
-          type="button"
-          :class="{ ativo: presetAtivo === '6m' }"
-          @click="aplicarPreset('6m')"
+          :class="{ ativo: periodoSelecionado === '6m' }"
+          @click="selecionarAtalhoPeriodo('6m')"
         >
           6 meses
         </button>
         <button
-          type="button"
-          :class="{ ativo: presetAtivo === '1a' }"
-          @click="aplicarPreset('1a')"
+          :class="{ ativo: periodoSelecionado === '1a' }"
+          @click="selecionarAtalhoPeriodo('1a')"
         >
           1 ano
         </button>
         <button
-          type="button"
-          :class="{ ativo: presetAtivo === 'custom' }"
-          @click="presetAtivo = 'custom'"
+          :class="{ ativo: periodoSelecionado === 'personalizado' }"
+          @click="periodoSelecionado = 'personalizado'"
         >
           Data exata
         </button>
       </div>
 
-      <div class="datas-custom">
+      <div
+        v-if="periodoSelecionado === 'personalizado'"
+        class="datas-personalizadas"
+      >
         <label>
           De
-          <input
-            type="date"
-            v-model="relatorioInicio"
-            @input="presetAtivo = 'custom'"
-          />
+          <CampoDataBR v-model="dataInicioRelatorio" />
         </label>
         <label>
           Até
-          <input
-            type="date"
-            v-model="relatorioFim"
-            @input="presetAtivo = 'custom'"
-          />
+          <CampoDataBR v-model="dataFimRelatorio" />
         </label>
       </div>
 
-      <div class="relatorio-bloco">
-        <div class="relatorio-cabecalho">
-          <span>
-            {{ formatarDataBR(relatorioInicio) }} até {{ formatarDataBR(relatorioFim) }}
-          </span>
-          <strong>{{ resumoRelatorio.diasTrabalhados }} dia(s)</strong>
-        </div>
+      <div class="filtro-veiculo-relatorio">
+        <select v-model="filtroVeiculoRelatorio" class="select-padrao">
+          <option value="todos">Todos os veículos</option>
+          <option v-for="v in veiculos" :key="v.id" :value="String(v.id)">
+            {{ iconeTipoVeiculo(v.tipo) }} {{ v.apelido }}
+            {{ v.modelo ? `(${v.modelo})` : '' }}
+          </option>
+        </select>
+      </div>
 
+      <div class="relatorio-cabecalho">
+        <span>
+          {{ formatarDataBR(dataInicioRelatorio) }} até
+          {{ formatarDataBR(dataFimRelatorio) }}
+        </span>
+        <strong>{{ resumoRelatorio.diasTrabalhados }} dia(s)</strong>
+      </div>
+
+      <div class="relatorio-bloco">
         <div class="relatorio-linha">
           <span>Distância percorrida</span>
           <strong>{{ resumoRelatorio.totalKm.toFixed(1) }} km</strong>
@@ -508,15 +617,9 @@ onMounted(carregarDados);
         </div>
         <div class="relatorio-linha">
           <span>Combustível ({{ resumoRelatorio.totalLitros.toFixed(1) }} L)</span>
-          <strong class="negativo">- {{ formatarMoeda(resumoRelatorio.totalGasolina) }}</strong>
-        </div>
-        <div class="relatorio-linha">
-          <span>Faturamento bruto</span>
-          <strong>{{ formatarMoeda(resumoRelatorio.totalGanhoBruto) }}</strong>
-        </div>
-        <div class="relatorio-linha">
-          <span>Combustível ({{ resumoRelatorio.totalLitros.toFixed(1) }} L)</span>
-          <strong class="negativo">- {{ formatarMoeda(resumoRelatorio.totalGasolina) }}</strong>
+          <strong class="negativo"
+            >- {{ formatarMoeda(resumoRelatorio.totalGasolina) }}</strong
+          >
         </div>
         <div class="relatorio-linha">
           <span>Valor sem gasolina</span>
@@ -524,55 +627,172 @@ onMounted(carregarDados);
         </div>
         <div class="relatorio-linha">
           <span>Reserva de desgaste</span>
-          <strong class="negativo">- {{ formatarMoeda(resumoRelatorio.totalDesgaste) }}</strong>
+          <strong class="negativo"
+            >- {{ formatarMoeda(resumoRelatorio.totalDesgaste) }}</strong
+          >
         </div>
-        <div class="relatorio-linha total">
+        <div class="relatorio-linha destaque-linha">
           <span>Lucro líquido no período</span>
-          <strong class="lucro-item">{{ formatarMoeda(resumoRelatorio.totalLucroReal) }}</strong>
+          <strong>{{ formatarMoeda(resumoRelatorio.totalLucroReal) }}</strong>
         </div>
+      </div>
 
-        <div class="relatorio-medias">
-          <div class="card">
-            <span>Média Lucro / Dia</span>
-            <strong>{{ formatarMoeda(resumoRelatorio.mediaLucroDia) }}</strong>
-          </div>
-          <div class="card">
-            <span>Lucro Líquido / KM</span>
-            <strong>{{ formatarMoeda(resumoRelatorio.lucroPorKm) }}</strong>
-          </div>
+      <div class="relatorio-bloco">
+        <div class="relatorio-linha">
+          <span>Média de lucro por dia trabalhado</span>
+          <strong>{{ formatarMoeda(resumoRelatorio.mediaLucroPorDia) }}</strong>
+        </div>
+        <div class="relatorio-linha">
+          <span>Lucro líquido por KM rodado</span>
+          <strong>{{ formatarMoeda(resumoRelatorio.lucroPorKm) }}/km</strong>
         </div>
       </div>
     </main>
 
-    <!-- ABA 4: Ajustes e Backup -->
-    <main v-else class="painel">
-      <form @submit.prevent="salvarAjustes" class="formulario">
-        <label>
-          Preço Padrão da Gasolina (R$/L)
-          <input type="number" step="0.01" inputmode="decimal" v-model.number="precoGasolina" />
-        </label>
+    <!-- ABA 4: Ajustes e Garagem -->
+    <main v-if="abaAtiva === 'ajustes'" class="painel">
+      <div class="secao-garagem">
+        <h3>Meus Veículos</h3>
 
-        <label>
-          Consumo do Veículo (km/L)
-          <input type="number" step="0.1" inputmode="decimal" v-model.number="consumoKmLitro" />
-        </label>
+        <div class="lista-veiculos">
+          <div
+            v-for="v in veiculos"
+            :key="v.id"
+            class="card-veiculo"
+            :class="{ 'veiculo-padrao': v.padrao }"
+          >
+            <div class="veiculo-info">
+              <div class="veiculo-nome">
+                <strong>{{ iconeTipoVeiculo(v.tipo) }} {{ v.apelido }}</strong>
+                <span v-if="v.padrao" class="tag-padrao">Padrão</span>
+              </div>
+              <span class="veiculo-modelo">{{ v.modelo }}</span>
+              <span class="veiculo-specs">
+                {{ v.consumoKmPorLitro }} km/L • Desgaste:
+                {{ formatarMoeda(v.reservaDesgastePorKm) }}/km
+              </span>
+            </div>
 
-        <label>
-          Reserva de Desgaste (R$/km)
-          <input type="number" step="0.01" inputmode="decimal" v-model.number="taxaDesgasteKm" />
-        </label>
+            <div class="veiculo-acoes">
+              <button
+                v-if="!v.padrao"
+                type="button"
+                @click="tornarPadrao(v.id)"
+                class="btn-mini"
+              >
+                Usar padrão
+              </button>
+              <button
+                type="button"
+                @click="editarVeiculo(v)"
+                class="btn-mini btn-mini-azul"
+              >
+                Editar
+              </button>
+              <button
+                v-if="veiculos.length > 1"
+                type="button"
+                @click="removerVeiculo(v.id)"
+                class="btn-excluir"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
 
-        <button type="submit" class="btn-primario">Atualizar Parâmetros</button>
-      </form>
+        <form @submit.prevent="salvarFormVeiculo" class="formulario form-veiculo">
+          <h4>{{ formVeiculo.id ? 'Editar Veículo' : 'Adicionar Novo Veículo' }}</h4>
+
+          <div class="presets-veiculo">
+            <button
+              type="button"
+              class="btn-preset"
+              @click="aplicarPresetVeiculo('carro')"
+            >
+              🚗 Padrão Carro (9 km/L • R$ 0,30)
+            </button>
+            <button
+              type="button"
+              class="btn-preset"
+              @click="aplicarPresetVeiculo('moto')"
+            >
+              🏍️ Padrão Moto (35 km/L • R$ 0,10)
+            </button>
+          </div>
+
+          <label>
+            Apelido do Veículo
+            <input
+              type="text"
+              placeholder="Ex: Moto do corre, Carro família"
+              v-model="formVeiculo.apelido"
+              required
+            />
+          </label>
+
+          <label>
+            Modelo
+            <input
+              type="text"
+              placeholder="Ex: CG 160 Start, Onix 1.0"
+              v-model="formVeiculo.modelo"
+            />
+          </label>
+
+         <div class="linha-dupla">
+         <label>
+           Consumo (KM/L)
+           <CampoNumero v-model="formVeiculo.consumoKmPorLitro" required />
+         </label>
+
+         <label>
+           Desgaste (R$/km)
+           <CampoNumero v-model="formVeiculo.reservaDesgastePorKm" required />
+         </label>
+       </div>
+
+          <label class="checkbox-linha">
+            <input type="checkbox" v-model="formVeiculo.padrao" />
+            <span>Definir como veículo padrão ao abrir o app</span>
+          </label>
+
+          <div class="botoes-form-veiculo">
+            <button type="submit" class="btn-principal">
+              {{ formVeiculo.id ? 'Atualizar Veículo' : 'Cadastrar Veículo' }}
+            </button>
+            <button
+              v-if="formVeiculo.id"
+              type="button"
+              class="btn-secundario"
+              @click="limparFormVeiculo"
+            >
+              Cancelar edição
+            </button>
+          </div>
+        </form>
+      </div>
 
       <hr class="divisor" />
 
       <div class="backup-area">
-        <h3>Backup (Celular / PC)</h3>
-        <button @click="baixarBackup" class="btn-secundario">Exportar Dados (.json)</button>
+        <h3>Backup dos Dados</h3>
+        <p>
+          Os registros ficam salvos apenas neste aparelho. Exporte regularmente
+          para não perder seu histórico.
+        </p>
+        <button type="button" @click="baixarBackup" class="btn-secundario">
+          Exportar Backup (.json)
+        </button>
+
         <label class="btn-secundario upload-label">
           Importar Backup (.json)
-          <input type="file" accept=".json" @change="restaurarBackup" hidden />
+          <input
+            type="file"
+            accept=".json"
+            @change="restaurarBackup"
+            hidden
+          />
         </label>
       </div>
     </main>

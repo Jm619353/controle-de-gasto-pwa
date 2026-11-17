@@ -1,4 +1,4 @@
-import type { RegistroDiario } from '../database/db';
+import type { Configuracao, RegistroDiario } from '../database/db';
 
 export interface RegistroCalculado extends RegistroDiario {
   litrosGastos: number;
@@ -6,6 +6,8 @@ export interface RegistroCalculado extends RegistroDiario {
   valorSemGasolina: number;
   reservaDesgaste: number;
   lucroReal: number;
+  consumoUsado: number;
+  reservaUsada: number;
 }
 
 export interface ResumoPeriodo {
@@ -17,20 +19,29 @@ export interface ResumoPeriodo {
   totalSemGasolina: number;
   totalDesgaste: number;
   totalLucroReal: number;
-  mediaLucroDia: number;
+  mediaLucroPorDia: number;
   lucroPorKm: number;
 }
 
-export function calcularLinha(registro: RegistroDiario): RegistroCalculado {
-  const litrosGastos =
-    registro.consumoAplicado > 0
-      ? registro.kmRodados / registro.consumoAplicado
-      : 0;
+export function calcularRegistro(
+  registro: RegistroDiario,
+  configFallback: Configuracao
+): RegistroCalculado {
+  const consumoUsado =
+    registro.consumoAplicado && registro.consumoAplicado > 0
+      ? registro.consumoAplicado
+      : configFallback.consumoKmPorLitro || 9;
 
+  const reservaUsada =
+    registro.reservaAplicada !== undefined && registro.reservaAplicada >= 0
+      ? registro.reservaAplicada
+      : configFallback.reservaDesgastePorKm ?? 0.3;
+
+  const litrosGastos = registro.kmRodados / consumoUsado;
   const valorGasolina = litrosGastos * registro.precoGasolinaAplicado;
   const valorSemGasolina = registro.dinheiroGanho - valorGasolina;
-  const reservaDesgaste = registro.kmRodados * registro.taxaDesgasteAplicada;
-  const lucroReal = registro.dinheiroGanho - valorGasolina - reservaDesgaste;
+  const reservaDesgaste = registro.kmRodados * reservaUsada;
+  const lucroReal = valorSemGasolina - reservaDesgaste;
 
   return {
     ...registro,
@@ -39,20 +50,27 @@ export function calcularLinha(registro: RegistroDiario): RegistroCalculado {
     valorSemGasolina,
     reservaDesgaste,
     lucroReal,
+    consumoUsado,
+    reservaUsada,
   };
 }
 
-export function calcularResumo(registros: RegistroCalculado[]): ResumoPeriodo {
+export function consolidarPeriodo(
+  registros: RegistroCalculado[]
+): ResumoPeriodo {
+  const diasUnicos = new Set(registros.map((r) => r.data)).size;
+
   const totais = registros.reduce(
-    (acc, item) => ({
-      totalKm: acc.totalKm + item.kmRodados,
-      totalGanhoBruto: acc.totalGanhoBruto + item.dinheiroGanho,
-      totalLitros: acc.totalLitros + item.litrosGastos,
-      totalGasolina: acc.totalGasolina + item.valorGasolina,
-      totalSemGasolina: acc.totalSemGasolina + item.valorSemGasolina,
-      totalDesgaste: acc.totalDesgaste + item.reservaDesgaste,
-      totalLucroReal: acc.totalLucroReal + item.lucroReal,
-    }),
+    (acc, item) => {
+      acc.totalKm += item.kmRodados;
+      acc.totalGanhoBruto += item.dinheiroGanho;
+      acc.totalLitros += item.litrosGastos;
+      acc.totalGasolina += item.valorGasolina;
+      acc.totalSemGasolina += item.valorSemGasolina;
+      acc.totalDesgaste += item.reservaDesgaste;
+      acc.totalLucroReal += item.lucroReal;
+      return acc;
+    },
     {
       totalKm: 0,
       totalGanhoBruto: 0,
@@ -64,16 +82,10 @@ export function calcularResumo(registros: RegistroCalculado[]): ResumoPeriodo {
     }
   );
 
-  const diasTrabalhados = registros.length;
-  const mediaLucroDia =
-    diasTrabalhados > 0 ? totais.totalLucroReal / diasTrabalhados : 0;
-  const lucroPorKm =
-    totais.totalKm > 0 ? totais.totalLucroReal / totais.totalKm : 0;
-
   return {
-    diasTrabalhados,
+    diasTrabalhados: diasUnicos,
     ...totais,
-    mediaLucroDia,
-    lucroPorKm,
+    mediaLucroPorDia: diasUnicos > 0 ? totais.totalLucroReal / diasUnicos : 0,
+    lucroPorKm: totais.totalKm > 0 ? totais.totalLucroReal / totais.totalKm : 0,
   };
 }
