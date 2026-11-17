@@ -24,7 +24,7 @@ Aplicação web progressiva (*Progressive Web App*) **mobile-first** desenvolvid
 - **Relatórios por Janela de Tempo:** Filtros rápidos para **7 dias**, **15 dias**, **1 mês**, **6 meses**, **1 ano** ou **período personalizado**, exibindo totais consolidados, média de lucro por dia e lucro líquido por quilômetro rodado.
 - **Histórico Editável:** Consulta mensal com possibilidade de corrigir datas de lançamentos anteriores ou excluir registros.
 - **Privacidade e Backup Local:** Todos os dados ficam salvos localmente no dispositivo via **IndexedDB**, com exportação e importação em arquivo `.json` para transferência entre celular e computador.
-- **Modo Offline (PWA):** Service Worker configurado para carregamento instantâneo e operação sem conexão com a internet.
+- **Modo Offline e Atualização Automática (PWA):** Service Worker configurado (`autoUpdate`) para carregamento instantâneo, operação sem internet e atualização automática do cache a cada nova versão publicada.
 - **Garagem de Veículos:** Cadastro de múltiplos veículos com apelido, modelo, consumo individual e reserva de desgaste, incluindo atalhos pré-configurados para **Carro** e **Moto** e filtro específico nos relatórios.
 
 ## Tecnologias Utilizadas
@@ -41,25 +41,26 @@ Aplicação web progressiva (*Progressive Web App*) **mobile-first** desenvolvid
 ├── public/
 │   ├── icon-192.png          # Ícone PWA (192x192)
 │   └── icon-512.png          # Ícone PWA (512x512)
-└── src/
-    ├── components/
-    │   └── CampoDataBR.vue   # Input de data híbrido (teclado dd/mm/aaaa + calendário)
-    ├── database/
-    │   ├── db.ts             # Definição do schema IndexedDB com Dexie
-    │   └── repositorio.ts    # Operações CRUD, filtros por período e backup JSON
-    ├── domain/
-    │   └── calculos.ts       # Regras de negócio, cálculos diários e consolidação de relatórios
-    ├── App.vue               # Interface principal e navegação por abas
-    ├── main.ts               # Ponto de entrada da aplicação
-    └── style.css             # Estilização global
-
+├── src/
+│   ├── components/
+│   │   ├── CampoDataBR.vue   # Input de data híbrido (teclado dd/mm/aaaa + calendário)
+│   │   └── CampoNumero.vue   # Input decimal sanitizado (aceita apenas números, ponto e vírgula)
+│   ├── database/
+│   │   ├── db.ts             # Definição do schema IndexedDB v2 (veículos e registros) com Dexie
+│   │   └── repositorio.ts    # Operações CRUD, gestão da garagem, filtros e backup JSON
+│   ├── domain/
+│   │   └── calculos.ts       # Regras de negócio, cálculos com snapshot e consolidação de relatórios
+│   ├── App.vue               # Interface principal e navegação por abas
+│   ├── main.ts               # Ponto de entrada da aplicação
+│   └── style.css             # Estilização global (mobile-first em tema escuro)
+└── vite.config.ts            # Configuração do Vite e do Service Worker (autoUpdate)
 ```
 
 ## Como Executar Localmente
 
 1. **Clone o repositório e instale as dependências:**
 ```bash
-git clone [https://github.com/Jm619353/controle-de-gasto-pwa.git](https://github.com/Jm619353/controle-de-gasto-pwa.git)
+git clone https://github.com/Jm619353/controle-de-gasto-pwa.git
 cd controle-de-gasto-pwa
 npm install
 
